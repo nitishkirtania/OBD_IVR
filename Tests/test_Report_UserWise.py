@@ -2,6 +2,7 @@ import pytest
 import os
 import time
 import pandas as pd
+import glob
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -60,31 +61,51 @@ class test_Report(WebDriverExample):
         return user_data
 
     def download_report(self, download_dir):
-        """Clicks the Export button and waits for the file to download."""
-        export_button = self.driver.find_element(By.XPATH, "//button[normalize-space()='Export File']")
-        self.driver.execute_script("arguments[0].click();", export_button)
-        print("✅ Export button clicked.")
+        """Clicks the Export button and waits for the correct file to download."""
+        waits = WebDriverWait(self.driver, 20)
 
-        timeout = 30
-        start_time = time.time()
-        downloaded_file = None
+        try:
+            # Wait for Export Button to be Clickable
+            export_button = waits.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Export File']")))
 
-        while time.time() - start_time < timeout:
-            files = sorted(
-                [f for f in os.listdir(download_dir) if f.endswith(".csv")],
-                key=lambda x: os.path.getmtime(os.path.join(download_dir, x)),
-                reverse=True
-            )
-            if files:
-                downloaded_file = os.path.join(download_dir, files[0])
-                print(f"✅ Downloaded file found: {downloaded_file}")
-                break
-            time.sleep(2)
+            # Record the timestamp before clicking
+            pre_download_time = time.time()
 
-        if not downloaded_file:
-            pytest.fail("❌ CSV file was not downloaded.")
+            self.driver.execute_script("arguments[0].click();", export_button)
+            print("✅ Export button clicked.")
+            time.sleep(5)  # Give time for download to start
 
-        return downloaded_file
+            timeout = 60  # Increased timeout for larger reports
+            start_time = time.time()
+            downloaded_file = None
+
+            print("⏳ Waiting for file download...")
+
+            while time.time() - start_time < timeout:
+                # Get all matching UserSummary_*.csv files
+                files = sorted(glob.glob(os.path.join(download_dir, "UserSummary_*.csv")), key=os.path.getmtime,
+                               reverse=True)
+
+                for file in files:
+                    file_time = os.path.getmtime(file)  # Get file modification time
+                    if file_time > pre_download_time:  # Ensure file was created after clicking Export
+                        downloaded_file = file
+                        print(f"✅ Correct downloaded file found: {downloaded_file}")
+                        break
+
+                if downloaded_file:
+                    break
+
+                time.sleep(2)  # Retry every 2 seconds
+
+            if not downloaded_file:
+                pytest.fail("❌ CSV file was not downloaded within the timeout period.")
+
+            return downloaded_file
+
+        except Exception as e:
+            pytest.fail(f"❌ Error downloading report: {e}")
 
     def validate_csv_with_web_data(self, csv_file, web_data):
         """Compares downloaded CSV file data with extracted web data."""
@@ -133,4 +154,3 @@ def test_report_operations(driver):
     report_handler.validate_csv_with_web_data(csv_file, web_data)
 
     print("✅ Test completed successfully!")
-
