@@ -9,7 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from test_Login import WebDriverExample, test_login
 
 
-class test_Report(WebDriverExample):
+class test_ReportCampaignWise(WebDriverExample):
     """Handles Report operations like navigation, data extraction, and file validation."""
 
     def __init__(self, driver):
@@ -35,6 +35,19 @@ class test_Report(WebDriverExample):
         except Exception as e:
             pytest.fail(f"❌ Error clicking Report button: {e}")
 
+        try:
+            # Ensure the element is visible and clickable
+            campaign_wise = waits.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//label[@for='mat-radio-3-input']//div[@class='mat-radio-inner-circle']"))
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", campaign_wise)
+            time.sleep(2)  # Give time for the page to adjust
+            campaign_wise.click()
+            print("✅ Campaign-wise report selected.")
+        except Exception as e:
+            pytest.fail(f"❌ Error selecting campaign-wise report: {e}")
+
     def extract_table_data(self):
         """Extracts data from the web table before downloading the report."""
         WebDriverWait(self.driver, 10).until(
@@ -48,21 +61,35 @@ class test_Report(WebDriverExample):
         time.sleep(5)  # Allow table to load
 
         user_data = {}
-        rows = self.driver.find_elements(By.XPATH, "//table[@id='userSummaryTable']/tbody/tr")
+        rows = self.driver.find_elements(By.XPATH, "//table[@id='campaignSummaryTable']//thead[@class='thead-dark']//tr")
 
         for row in rows:
             cells = row.find_elements(By.TAG_NAME, "td")
-            if len(cells) > 6:  # Ensure the row has enough columns
+            if len(cells) >= 12:  # Ensure the row has enough columns
+                execution_date = cells[1].text.strip()
                 user_name = cells[2].text.strip()
-                total_msisdn = int(cells[3].text.strip().replace(",", ""))  # Remove commas
-                valid_msisdn = int(cells[4].text.strip().replace(",", ""))
-                attempted_calls = int(cells[5].text.strip().replace(",", ""))
-                connected_calls = int(cells[6].text.strip().replace(",", ""))
+                campaign_name = cells[3].text.strip()
+                total_msisdn = int(cells[4].text.strip().replace(",", ""))  # Remove commas
+                valid_msisdn = int(cells[5].text.strip().replace(",", ""))
+                attempted_calls = int(cells[6].text.strip().replace(",", ""))
+                connected_calls = int(cells[7].text.strip().replace(",", ""))
+                digit_pressed = int(cells[8].text.strip())
+                listen_rate = cells[9].text.strip()
+                total_bill_sec = int(cells[10].text.strip().replace(",", ""))
+                credits_used = int(cells[11].text.strip().replace(",", ""))
+                call_patch = int(cells[12].text.strip())
                 user_data[user_name] = {
+                    "execution_date": execution_date,
+                    "campaign_name": campaign_name,
                     "total_msisdn": total_msisdn,
                     "valid_msisdn": valid_msisdn,
                     "attempted_calls": attempted_calls,
-                    "connected_calls": connected_calls
+                    "connected_calls": connected_calls,
+                    "digit_pressed": digit_pressed,
+                    "listen_rate": listen_rate,
+                    "total_bill_sec": total_bill_sec,
+                    "credits_used": credits_used,
+                    "call_patch": call_patch
                 }
 
         print("✅ Extracted Web Table Data:", user_data)
@@ -92,7 +119,7 @@ class test_Report(WebDriverExample):
 
             while time.time() - start_time < timeout:
                 # Get all matching UserSummary_*.csv files
-                files = sorted(glob.glob(os.path.join(download_dir, "UserSummary_*.csv")), key=os.path.getmtime,
+                files = sorted(glob.glob(os.path.join(download_dir, "CampaignSummary_*.csv")), key=os.path.getmtime,
                                reverse=True)
 
                 for file in files:
@@ -122,34 +149,52 @@ class test_Report(WebDriverExample):
             print("✅ CSV file contents:")
             print(df.head())  # Show first 5 rows
 
-            # Convert column names to lowercase and strip spaces
+            # Convert column names to lowercase
             df.columns = df.columns.str.lower().str.strip()
 
-            # Expected columns
-            required_columns = ["user_name", "total_msisdn", "valid_msisdn", "attempted_calls", "connected_calls"]
-
-            # Verify all required columns are present
-            for col in required_columns:
-                if col not in df.columns:
-                    pytest.fail(f"❌ Missing expected column in CSV: {col}")
-
-            # Extract relevant data from CSV
+            # Adjust column name references
             csv_data = {}
             for _, row in df.iterrows():
-                user = row["user_name"].strip()
-                csv_data[user] = {
-                    "total_msisdn": int(str(row["total_msisdn"]).strip().replace(",", "")),
-                    "valid_msisdn": int(str(row["valid_msisdn"]).strip().replace(",", "")),
-                    "attempted_calls": int(str(row["attempted_calls"]).strip().replace(",", "")),
-                    "connected_calls": int(str(row["connected_calls"]).strip().replace(",", ""))
+                user_name = row["user name"].strip()
+                csv_data[user_name] = {
+                    "execution_date": row["execution date"].strip(),
+                    "campaign_name": row["campaign name"].strip(),
+                    "total_msisdn": int(str(row["total msisdn"]).strip().replace(",", "")),
+                    "valid_msisdn": int(str(row["valid msisdn"]).strip().replace(",", "")),
+                    "attempted_calls": int(str(row["attempted calls"]).strip().replace(",", "")),
+                    "connected_calls": int(str(row["connected calls"]).strip().replace(",", "")),
+                    "digit_pressed": int(str(row["digit pressed"]).strip()),
+                    "listen_rate": row["listen rate"].strip(),
+                    "total_bill_sec": int(str(row["total bill sec"]).strip().replace(",", "")),
+                    "credits_used": int(str(row["credits used"]).strip().replace(",", "")),
+                    "call_patch": int(str(row["call patch"]).strip())
                 }
 
             print("✅ Extracted CSV Data:", csv_data)
 
-            # Validate against extracted web data
-            assert csv_data == web_data, "❌ Mismatch between web data and CSV data!"
+        #     # Validate against extracted web data
+        #     assert csv_data == web_data, "❌ Mismatch between web data and CSV data!"
+        #     print("✅ Data Matched Successfully!")
+        #
+        # except Exception as e:
+        #     pytest.fail(f"❌ Error validating CSV file: {e}")
+            # Compare CSV data with extracted web data
+            mismatches = []
+            for user, csv_entry in csv_data.items():
+                if user not in web_data:
+                    mismatches.append(f"❌ User {user} not found in web data")
+                    continue
 
-            print("✅ Data Matched Successfully!")
+                web_entry = web_data[user]
+                for key in csv_entry:
+                    if csv_entry[key] != web_entry[key]:
+                        mismatches.append(
+                            f"❌ Mismatch for {user} in {key}: Web({web_entry[key]}) vs CSV({csv_entry[key]})")
+
+            if mismatches:
+                pytest.fail("\n".join(mismatches))
+            else:
+                print("✅ Data Matched Successfully!")
 
         except Exception as e:
             pytest.fail(f"❌ Error validating CSV file: {e}")
@@ -166,7 +211,7 @@ def test_report_operations(driver):
     driver.switch_to.window(driver.window_handles[-1])
 
     # Use existing WebDriver instead of initializing a new one
-    report_handler = test_Report(driver)
+    report_handler = test_ReportCampaignWise(driver)
     report_handler.navigate_to_report_page()
     web_data = report_handler.extract_table_data()
 
