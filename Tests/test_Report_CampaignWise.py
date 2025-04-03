@@ -36,14 +36,18 @@ class test_ReportCampaignWise(WebDriverExample):
             pytest.fail(f"❌ Error clicking Report button: {e}")
 
         try:
-            # Ensure the element is visible and clickable
-            campaign_wise = waits.until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, "//label[@for='mat-radio-3-input']//div[@class='mat-radio-inner-circle']"))
+            # Wait for overlay to disappear
+            WebDriverWait(self.driver, 15).until(
+                EC.invisibility_of_element_located((By.CLASS_NAME, "ngx-overlay"))
             )
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", campaign_wise)
-            time.sleep(2)  # Give time for the page to adjust
-            campaign_wise.click()
+
+            campaign_wise_label = waits.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//label[@for='mat-radio-3-input']//div[@class='mat-radio-outer-circle']"))
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", campaign_wise_label)
+            time.sleep(2)  # Allow adjustments
+            campaign_wise_label.click()
             print("✅ Campaign-wise report selected.")
         except Exception as e:
             pytest.fail(f"❌ Error selecting campaign-wise report: {e}")
@@ -61,38 +65,46 @@ class test_ReportCampaignWise(WebDriverExample):
         time.sleep(5)  # Allow table to load
 
         user_data = {}
-        rows = self.driver.find_elements(By.XPATH, "//table[@id='campaignSummaryTable']//thead[@class='thead-dark']//tr")
+
+        rows = self.driver.find_elements(By.XPATH, "//table[@id='campaignSummaryTable']//tbody/tr")
 
         for row in rows:
-            cells = row.find_elements(By.TAG_NAME, "td")
+            cells = row.find_elements(By.TAG_NAME, "td")  # FIX: Extract 'td' instead of 'th'
+
             if len(cells) >= 12:  # Ensure the row has enough columns
-                execution_date = cells[1].text.strip()
+                execution_date = cells[1].text.strip()  # Adjust index (skip S.No)
                 user_name = cells[2].text.strip()
                 campaign_name = cells[3].text.strip()
-                total_msisdn = int(cells[4].text.strip().replace(",", ""))  # Remove commas
-                valid_msisdn = int(cells[5].text.strip().replace(",", ""))
-                attempted_calls = int(cells[6].text.strip().replace(",", ""))
-                connected_calls = int(cells[7].text.strip().replace(",", ""))
-                digit_pressed = int(cells[8].text.strip())
-                listen_rate = cells[9].text.strip()
-                total_bill_sec = int(cells[10].text.strip().replace(",", ""))
-                credits_used = int(cells[11].text.strip().replace(",", ""))
-                call_patch = int(cells[12].text.strip())
-                user_data[user_name] = {
-                    "execution_date": execution_date,
-                    "campaign_name": campaign_name,
-                    "total_msisdn": total_msisdn,
-                    "valid_msisdn": valid_msisdn,
-                    "attempted_calls": attempted_calls,
-                    "connected_calls": connected_calls,
-                    "digit_pressed": digit_pressed,
-                    "listen_rate": listen_rate,
-                    "total_bill_sec": total_bill_sec,
-                    "credits_used": credits_used,
-                    "call_patch": call_patch
-                }
 
-        print("✅ Extracted Web Table Data:", user_data)
+                try:
+                    total_msisdn = int(cells[4].text.strip().replace(",", ""))
+                    valid_msisdn = int(cells[5].text.strip().replace(",", ""))
+                    attempted_calls = int(cells[6].text.strip().replace(",", ""))
+                    connected_calls = int(cells[7].text.strip().replace(",", ""))
+                    digit_pressed = int(cells[8].text.strip())
+                    listen_rate = cells[9].text.strip()
+                    total_bill_sec = int(cells[10].text.strip().replace(",", ""))
+                    credits_used = int(cells[11].text.strip().replace(",", ""))
+                    call_patch = int(cells[12].text.strip())
+
+                    user_data[user_name] = {
+                        "execution_date": execution_date,
+                        "campaign_name": campaign_name,
+                        "total_msisdn": total_msisdn,
+                        "valid_msisdn": valid_msisdn,
+                        "attempted_calls": attempted_calls,
+                        "connected_calls": connected_calls,
+                        "digit_pressed": digit_pressed,
+                        "listen_rate": listen_rate,
+                        "total_bill_sec": total_bill_sec,
+                        "credits_used": credits_used,
+                        "call_patch": call_patch
+                    }
+
+                except ValueError as e:
+                    print(f"❌ Error converting values in row: {[cell.text for cell in cells]}")
+                    raise e  # Rethrow the error for debugging
+
         return user_data
 
     def download_report(self, download_dir):
@@ -145,51 +157,61 @@ class test_ReportCampaignWise(WebDriverExample):
     def validate_csv_with_web_data(self, csv_file, web_data):
         """Compares downloaded CSV file data with extracted web data."""
         try:
+            # Read CSV file and convert column names to lowercase
             df = pd.read_csv(csv_file)
             print("✅ CSV file contents:")
-            print(df.head())  # Show first 5 rows
+            print(df.head())  # Show first 5 rows for inspection
 
-            # Convert column names to lowercase
+            # Convert column names to lowercase and strip any extra spaces
             df.columns = df.columns.str.lower().str.strip()
 
             # Adjust column name references
             csv_data = {}
             for _, row in df.iterrows():
-                user_name = row["user name"].strip()
+                user_name = row["user_name"].strip()
                 csv_data[user_name] = {
-                    "execution_date": row["execution date"].strip(),
-                    "campaign_name": row["campaign name"].strip(),
-                    "total_msisdn": int(str(row["total msisdn"]).strip().replace(",", "")),
-                    "valid_msisdn": int(str(row["valid msisdn"]).strip().replace(",", "")),
-                    "attempted_calls": int(str(row["attempted calls"]).strip().replace(",", "")),
-                    "connected_calls": int(str(row["connected calls"]).strip().replace(",", "")),
-                    "digit_pressed": int(str(row["digit pressed"]).strip()),
-                    "listen_rate": row["listen rate"].strip(),
-                    "total_bill_sec": int(str(row["total bill sec"]).strip().replace(",", "")),
-                    "credits_used": int(str(row["credits used"]).strip().replace(",", "")),
-                    "call_patch": int(str(row["call patch"]).strip())
+                    "execution_date": row["execution_dt"].strip(),
+                    "campaign_name": row["campaign_name"].strip(),
+                    "total_msisdn": int(str(row["total_msisdn"]).strip().replace(",", "")),
+                    "valid_msisdn": int(str(row["valid_msisdn"]).strip().replace(",", "")),
+                    "attempted_calls": int(str(row["attempted_calls"]).strip().replace(",", "")),
+                    "connected_calls": int(str(row["connected_calls"]).strip().replace(",", "")),
+                    "digit_pressed": int(str(row["digit_pressed"]).strip().replace(",", "")) if pd.notna(row["digit_pressed"]) else 0,
+                    "listen_rate": float(str(row["listen_rate"]).strip()) if pd.notna(row["listen_rate"]) else 0.0,  # Ensure float conversion
+                    "total_bill_sec": int(str(row["total_bill_sec"]).strip().replace(",", "")),
+                    "credits_used": int(str(row["credit_used"]).strip().replace(",", "")),  # Fixed column name
+                    "call_patch": int(str(row["call_patch"]).strip()) if "call_patch" in df.columns else 0  # Handle missing column
                 }
 
             print("✅ Extracted CSV Data:", csv_data)
 
-        #     # Validate against extracted web data
-        #     assert csv_data == web_data, "❌ Mismatch between web data and CSV data!"
-        #     print("✅ Data Matched Successfully!")
-        #
-        # except Exception as e:
-        #     pytest.fail(f"❌ Error validating CSV file: {e}")
+            # Debugging: print web data
+            print("✅ Web Data:", web_data)
+
+            # Validate user names first (check that all CSV users are in web data)
+            missing_users = [user for user in csv_data if user not in web_data]
+            if missing_users:
+                pytest.fail(f"❌ Missing users in web data: {', '.join(missing_users)}")
+
             # Compare CSV data with extracted web data
             mismatches = []
             for user, csv_entry in csv_data.items():
-                if user not in web_data:
-                    mismatches.append(f"❌ User {user} not found in web data")
-                    continue
+                if user in web_data:
+                    web_entry = web_data[user]
+                    for key, csv_value in csv_entry.items():
+                        web_value = web_entry.get(key)
 
-                web_entry = web_data[user]
-                for key in csv_entry:
-                    if csv_entry[key] != web_entry[key]:
-                        mismatches.append(
-                            f"❌ Mismatch for {user} in {key}: Web({web_entry[key]}) vs CSV({csv_entry[key]})")
+                        # Normalize listen_rate comparison
+                        if key == "listen_rate":
+                            csv_value = round(float(csv_value), 2)  # Ensure float and round to 2 decimal places
+                            web_value = round(float(str(web_value).replace("%", "")), 2) if isinstance(web_value,
+                                                                                                       str) else round(
+                                float(web_value), 2)
+
+                        if csv_value != web_value:
+                            mismatches.append(
+                                f"❌ Mismatch for {user} in {key}: Web({web_value}) vs CSV({csv_value})"
+                            )
 
             if mismatches:
                 pytest.fail("\n".join(mismatches))
